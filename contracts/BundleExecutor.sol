@@ -29,35 +29,37 @@ contract FlashBotsMultiCall {
     IWETH private constant WETH = IWETH(0xB4FBF271143F4FBf7B91A5ded31805e42b2208d6);
     IERC20 private constant WETH_ERC20 = IWETH(0xB4FBF271143F4FBf7B91A5ded31805e42b2208d6);
     IERC20 private constant TREV = IERC20(0x6dC371370Be6bc66a5bD752e59d78CCB869F3cfD);
-    address MARKET1 = 0xDb79fc4229EddcaD66f1aDCfA5BF38F6f5358cC6;
-    address MARKET2 = 0x397BDcA348ce1552757C51Efd3126e73982df9A9;
 
     constructor() public payable {
     }
 
+    fallback() external payable {}
+
+    receive() external payable {}
+
     function uniswapWeth(uint256 _ethAmountToCoinbase, address[] memory _targets, bytes[] memory _payloads) external payable {
-        require (_targets.length == _payloads.length);
-        if (msg.value > 0) {
-            WETH.deposit{value: msg.value}();
-        }
+        require (_targets.length == _payloads.length, 'lengths do not match');
+        
+        WETH.deposit{value: msg.value}();
         uint256 _wethBalanceBefore = WETH.balanceOf(address(this));
-        WETH.transfer(_targets[0], _wethBalanceBefore);
+        
+        if (_targets.length > 0) {
+            WETH.transfer(_targets[0], _wethBalanceBefore);
+        }
         for (uint256 i = 0; i < _targets.length; i++) {
             (bool _success, bytes memory _response) = _targets[i].call(_payloads[i]);
-            require(_success); _response;
+            require(_success, 'call failed'); _response;
         }
 
         uint256 _wethBalanceAfter = WETH.balanceOf(address(this));
-        require(_wethBalanceAfter > _wethBalanceBefore + _ethAmountToCoinbase);
-        if (_ethAmountToCoinbase == 0) return;
+        // require(_wethBalanceAfter >= _wethBalanceBefore + _ethAmountToCoinbase, 'weth did not increase');
 
-        WETH.withdraw(_wethBalanceAfter);
-
-        uint256 _ethBalance = address(this).balance;
-        if (_ethBalance < _ethAmountToCoinbase) {
-            WETH.withdraw(_ethAmountToCoinbase - _ethBalance);
+        if (_wethBalanceAfter > 0) {
+            WETH.withdraw(_wethBalanceAfter);
+            msg.sender.transfer(_wethBalanceAfter - _ethAmountToCoinbase);
         }
+
+        if (_ethAmountToCoinbase == 0) return;            
         block.coinbase.transfer(_ethAmountToCoinbase);
-        msg.sender.send(_ethAmountToCoinbase - _ethBalance);
     }
 }

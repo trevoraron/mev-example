@@ -78,7 +78,7 @@ export function SimulateCrossExchange(market1: Market, market2: Market, amount: 
 }
 
 function GetBestArb(market1: Market, market2: Market, coin: string, swapCoin: string, maxAmount: BigNumber): [BigNumber, BigNumber] {
-  let options = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 5000, 10000]
+  let options = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 5000, 10000, 20000]
   let bestOption = ethers.constants.Zero
   let bestArb: BigNumber = ethers.constants.Zero
   for (let option of options) {
@@ -120,21 +120,20 @@ export function FindArb(
   return [bestAmount, bestArb, bestPath]
 }
 
-export async function GenSwapData(vol: BigNumber, coin: string, swapCoin: string, market: Market): Promise<string> {
+export async function GenSwapData(vol: BigNumber, coin: string, swapCoin: string, market: Market, address: string): Promise<ethers.PopulatedTransaction> {
   const marketContract = new ethers.Contract(market.address, [
     'function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data) external'
   ])
   let amount0Out = coin == market.coinX ? vol : BigNumber.from(0)
   let amount1Out = coin == market.coinX ? BigNumber.from(0) : vol
-  let tx = await marketContract.populateTransaction.swap(amount0Out, amount1Out, BUNDLE_EXECUTOR_ADDR, [])
-  return tx.data ? tx.data : ''
+  let tx = await marketContract.populateTransaction.swap(amount0Out, amount1Out, address, [])
+  return tx
 }
 
 export async function GenSwapEthTx(vol: BigNumber, wallet: Wallet): Promise<string> {
   const routerContract = new ethers.Contract(UNI_ROUTER, [
     'function swapExactETHForTokens(uint amountOutMin, address[] calldata path, address to, uint deadline) external payable returns (uint[] memory amounts)'
   ])
-  console.log('after init')
   let path = [WETH_ADDR, TREVCOIN_ADDR]
   // We are giving it an hour
   let deadline = Date.now() + 3600
@@ -153,7 +152,7 @@ export async function GenArbData(
   path: Array<Market>,
   startingCoin: string,
   swapCoin: string
-): Promise<string> {
+): Promise<ethers.PopulatedTransaction> {
   const bundleExecutorContract = new ethers.Contract(BUNDLE_EXECUTOR_ADDR, [
     'function uniswapWeth(uint256 _ethAmountToCoinbase, address[] memory _targets, bytes[] memory _payloads) external payable'
   ])
@@ -162,18 +161,22 @@ export async function GenArbData(
   let payloads: Array<String> = ['', '']
 
   targets[0] = path[0].address
-  payloads[0] = await GenSwapData(vol, startingCoin, swapCoin, path[0])
+  let sw1tx = await GenSwapData(vol, startingCoin, swapCoin, path[0], path[1].address)
+  payloads[0] = sw1tx.data ? sw1tx.data : ''
   let [interAmount] = SimulateSwap(path[0], startingCoin, vol)
 
   targets[1] = path[1].address
-  payloads[1] = await GenSwapData(interAmount, swapCoin, startingCoin, path[1])
+  let sw2tx = await GenSwapData(vol, startingCoin, swapCoin, path[1], BUNDLE_EXECUTOR_ADDR)
+  payloads[1] = sw2tx.data ? sw2tx.data : ''
 
-  let minerReward = arb.mul(1).div(10)
+  let minerReward = arb.mul(1).div(3)
 
+  let fakeTargets: Array<String>= []
+  let fakePayloads: Array<String>= [] 
   const tx = await bundleExecutorContract.populateTransaction.uniswapWeth(minerReward, targets, payloads, {
     value: vol,
-    gasPrice: BigNumber.from(0),
-    gasLimit: BigNumber.from(1000000)
+    // gasPrice: BigNumber.from(0),
+    // gasLimit: BigNumber.from(1000000)
   })
-  return tx.data ? tx.data : ''
+  return tx
 }
