@@ -52,7 +52,7 @@ contract FlashBotsMultiCall {
         }
 
         uint256 _wethBalanceAfter = WETH.balanceOf(address(this));
-        // require(_wethBalanceAfter >= _wethBalanceBefore + _ethAmountToCoinbase, 'weth did not increase');
+        require(_wethBalanceAfter >= _wethBalanceBefore + _ethAmountToCoinbase, 'weth did not increase');
 
         if (_wethBalanceAfter > 0) {
             WETH.withdraw(_wethBalanceAfter);

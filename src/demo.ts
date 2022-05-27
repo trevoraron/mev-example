@@ -5,6 +5,7 @@ import { FetchFromUniswap, FindArb, GenArbData, GenSwapData, GenSwapEthTx, LogMa
 import { SUSHISWAP_PAIR, TREVCOIN_ADDR, UNISWAP_PAIR, WETH_ADDR } from './library/constants'
 import { bigNumberToDecimal } from './library/utils'
 import * as _ from 'lodash'
+import { exit } from 'process'
 
 const CHAIN_ID = 5
 const provider = new providers.InfuraProvider(CHAIN_ID, process.env.INFURA_API_KEY)
@@ -32,6 +33,7 @@ async function main() {
   console.log('Getting Balance')
   const balance = await account.getBalance()
   console.log(`ETH Balance: ${ethers.utils.formatUnits(balance, 18)}`)
+  console.log(`eth addr: ${account.address}`)
 
   console.log('Getting Best Arb')
   let [vol, arb, path] = FindArb(market, market2, WETH_ADDR, TREVCOIN_ADDR, balance)
@@ -43,6 +45,8 @@ async function main() {
   let tx = await GenArbData(vol, arb, path, WETH_ADDR, TREVCOIN_ADDR)
   let req = await wallet.populateTransaction(tx)
   let final = await wallet.signTransaction(req)
+
+  exit(1)
 
   console.log('swapping OG')
   let sentTx = await provider.sendTransaction(final)

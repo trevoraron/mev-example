@@ -1,5 +1,6 @@
 import { BigNumber, ethers, providers, Wallet } from 'ethers'
 import { FormatTypes } from 'ethers/lib/utils'
+import { add, flatMap } from 'lodash'
 import { convertToObject } from 'typescript'
 import { markAsUntransferable } from 'worker_threads'
 import { BUNDLE_EXECUTOR_ADDR, TREVCOIN_ADDR, UNI_ROUTER, WETH_ADDR } from './constants'
@@ -17,7 +18,7 @@ export function LogMarket(market: Market) {
   console.log('Address: ' + market.address)
   console.log('CoinX: ' + market.coinX)
   console.log('Volume: ' + market.x.toString())
-  console.log('CoinY: ' + market.coinX)
+  console.log('CoinY: ' + market.coinY)
   console.log('Volume: ' + market.y.toString())
 }
 
@@ -46,6 +47,7 @@ export async function FetchFromUniswap(address: string, provider: providers.Json
 }
 
 export function SimulateSwap(market: Market, coin: string, amount: BigNumber): [BigNumber, Market] {
+  // let k = market.x.mul(market.y).mul(1001).div(1000)
   let k = market.x.mul(market.y)
   let amTraded = amount.mul(997).div(1000)
 
@@ -59,35 +61,32 @@ export function SimulateSwap(market: Market, coin: string, amount: BigNumber): [
     newX = k.div(market.y.add(amTraded))
     recieved = market.x.sub(newX)
   }
-  // console.log("Old X: " + market.x.toString())
-  // console.log("Old Y: " + market.y.toString())
-  // console.log("New X:" + newX.toString())
-  // console.log("New Y:" + newY.toString())
-  // console.log("Recieved:" + recieved.toString())
+
   return [recieved, { address: market.address, coinX: market.coinX, coinY: market.coinY, x: newX, y: newY }]
 }
 
 export function SimulateCrossExchange(market1: Market, market2: Market, amount: BigNumber, coin: string, swapCoin: string): BigNumber {
   let [interAmount] = SimulateSwap(market1, coin, amount)
-  // console.log("InterAmount")
-  // console.log(interAmount.toString())
+
   let [ret] = SimulateSwap(market2, swapCoin, interAmount)
-  // console.log("After")
-  // console.log(ret.toString())
+
   return ret
 }
 
 function GetBestArb(market1: Market, market2: Market, coin: string, swapCoin: string, maxAmount: BigNumber): [BigNumber, BigNumber] {
-  let options = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 5000, 10000, 20000]
+  let options = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000]
   let bestOption = ethers.constants.Zero
   let bestArb: BigNumber = ethers.constants.Zero
   for (let option of options) {
     let bigOption = ethers.constants.WeiPerEther.div(100).mul(option)
-    if (bigOption > maxAmount) {
+    if (bigOption.gte(maxAmount)) {
       continue
     }
     let arb = SimulateCrossExchange(market1, market2, bigOption, coin, swapCoin)
-    if (arb > bestArb) {
+    if (bigOption.gte(arb)) {
+      continue
+    }
+    if (arb.gte(bestArb)) {
       bestArb = arb
       bestOption = bigOption
     }
@@ -111,7 +110,8 @@ export function FindArb(
   let bestPath: Market[] = []
   for (let markets of possibleMarkets) {
     let [amount, arb] = GetBestArb(markets[0], markets[1], startingCoin, swapCoin, maxAmount)
-    if (arb > bestArb) {
+    console.log(`Arb: ${ethers.utils.formatUnits(arb, 18)}`)
+    if (arb.gte(bestArb)) {
       bestArb = arb
       bestAmount = amount
       bestPath = markets
@@ -120,13 +120,22 @@ export function FindArb(
   return [bestAmount, bestArb, bestPath]
 }
 
-export async function GenSwapData(vol: BigNumber, coin: string, swapCoin: string, market: Market, address: string): Promise<ethers.PopulatedTransaction> {
+export async function GenSwapData(
+  vol: BigNumber,
+  coin: string,
+  swapCoin: string,
+  market: Market,
+  address: string
+): Promise<ethers.PopulatedTransaction> {
   const marketContract = new ethers.Contract(market.address, [
     'function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data) external'
   ])
-  let amount0Out = coin == market.coinX ? vol : BigNumber.from(0)
-  let amount1Out = coin == market.coinX ? BigNumber.from(0) : vol
+
+  let [amountOut] = SimulateSwap(market, coin, vol)
+  let amount0Out = swapCoin == market.coinX ? amountOut : BigNumber.from(0)
+  let amount1Out = swapCoin == market.coinY ? amountOut : BigNumber.from(0)
   let tx = await marketContract.populateTransaction.swap(amount0Out, amount1Out, address, [])
+  // console.log(`${amount0Out.toString()}, ${amount1Out.toString()}, to: ${address}`)
   return tx
 }
 
@@ -166,17 +175,17 @@ export async function GenArbData(
   let [interAmount] = SimulateSwap(path[0], startingCoin, vol)
 
   targets[1] = path[1].address
-  let sw2tx = await GenSwapData(vol, startingCoin, swapCoin, path[1], BUNDLE_EXECUTOR_ADDR)
+  let sw2tx = await GenSwapData(interAmount, swapCoin, startingCoin, path[1], BUNDLE_EXECUTOR_ADDR)
   payloads[1] = sw2tx.data ? sw2tx.data : ''
 
   let minerReward = arb.mul(1).div(3)
 
-  let fakeTargets: Array<String>= []
-  let fakePayloads: Array<String>= [] 
+  let fakeTargets: Array<String> = []
+  let fakePayloads: Array<String> = []
   const tx = await bundleExecutorContract.populateTransaction.uniswapWeth(minerReward, targets, payloads, {
     value: vol,
     // gasPrice: BigNumber.from(0),
-    // gasLimit: BigNumber.from(1000000)
+    gasLimit: BigNumber.from(1000000)
   })
   return tx
 }

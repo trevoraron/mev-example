@@ -21,6 +21,7 @@
     "gen_keys": "npx ts-node --project tsconfig.json src/gen_keys.ts",
     "approve_trading": "npx ts-node --project tsconfig.json src/approve_trading.ts",
     "demo": "npx ts-node --project tsconfig.json src/demo.ts",
+    "minter": "npx ts-node --project tsconfig.json src/minter_demo.ts",
     "build": "npx tsc",
     "clean": "rm -rf build/",
     "prepare": "npm run clean && npm run build",
