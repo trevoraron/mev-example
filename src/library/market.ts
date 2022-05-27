@@ -46,9 +46,10 @@ export async function FetchFromUniswap(address: string, provider: providers.Json
   }
 }
 
+// formula i derived myself
 export function SimulateSwap(market: Market, coin: string, amount: BigNumber): [BigNumber, Market] {
-  // let k = market.x.mul(market.y).mul(1001).div(1000)
-  let k = market.x.mul(market.y)
+  let k = market.x.mul(market.y).mul(1001).div(1000)
+  // let k = market.x.mul(market.y)
   let amTraded = amount.mul(997).div(1000)
 
   let newX, newY, recieved: BigNumber
@@ -65,6 +66,34 @@ export function SimulateSwap(market: Market, coin: string, amount: BigNumber): [
   return [recieved, { address: market.address, coinX: market.coinX, coinY: market.coinY, x: newX, y: newY }]
 }
 
+// stolen from flashbots simple arbitrage. seems to give same result as mine
+export function SimulateSwapBert(market: Market, coin: string, amount: BigNumber): [BigNumber, Market] {
+  let reserveIn, reserveOut: BigNumber
+  if (coin == market.coinX) {
+    reserveIn = market.x
+    reserveOut = market.y
+  } else {
+    reserveIn = market.y
+    reserveOut = market.x
+  }
+
+  const amountInWithFee: BigNumber = amount.mul(997)
+  const numerator = amountInWithFee.mul(reserveOut)
+  const denominator = reserveIn.mul(1000).add(amountInWithFee)
+  const amountOut = numerator.div(denominator)
+
+  let newX, newY: BigNumber
+  if (coin == market.coinX) {
+    newX = reserveIn.add(amount)
+    newY = reserveOut.sub(amountOut)
+  } else {
+    newY = reserveIn.add(amount)
+    newX = reserveOut.sub(amountOut)
+  }
+
+  return [amountOut, { address: market.address, coinX: market.coinX, coinY: market.coinY, x: newX, y: newY }]
+}
+
 export function SimulateCrossExchange(market1: Market, market2: Market, amount: BigNumber, coin: string, swapCoin: string): BigNumber {
   let [interAmount] = SimulateSwap(market1, coin, amount)
 
@@ -74,20 +103,23 @@ export function SimulateCrossExchange(market1: Market, market2: Market, amount: 
 }
 
 function GetBestArb(market1: Market, market2: Market, coin: string, swapCoin: string, maxAmount: BigNumber): [BigNumber, BigNumber] {
-  let options = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000]
+  let options = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 50000, 100000]
   let bestOption = ethers.constants.Zero
   let bestArb: BigNumber = ethers.constants.Zero
   for (let option of options) {
-    let bigOption = ethers.constants.WeiPerEther.div(100).mul(option)
+    let bigOption = ethers.constants.WeiPerEther.div(10000).mul(option)
     if (bigOption.gte(maxAmount)) {
       continue
     }
+
     let arb = SimulateCrossExchange(market1, market2, bigOption, coin, swapCoin)
-    if (bigOption.gte(arb)) {
+    if (bigOption.gt(arb)) {
       continue
     }
-    if (arb.gte(bestArb)) {
-      bestArb = arb
+    let finalArb = bigOption.sub(arb)
+
+    if (finalArb.gte(bestArb)) {
+      bestArb = finalArb
       bestOption = bigOption
     }
   }
@@ -184,7 +216,7 @@ export async function GenArbData(
   let fakePayloads: Array<String> = []
   const tx = await bundleExecutorContract.populateTransaction.uniswapWeth(minerReward, targets, payloads, {
     value: vol,
-    // gasPrice: BigNumber.from(0),
+    gasPrice: BigNumber.from(10).pow(9).mul(12),
     gasLimit: BigNumber.from(1000000)
   })
   return tx

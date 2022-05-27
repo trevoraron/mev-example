@@ -2,6 +2,11 @@
 
 this dir is for trevor messing around with mev stuff
 
+Current Demos:
+
+1. BackRun Demo -- Uses flashbots to backrun a transaction and attempt to abstract arbitrage
+2. Minter Demo -- Uses flashbots to mint an NFT
+
 # Environment Variables
 
 - **ETHEREUM_RPC_URL** - Ethereum RPC endpoint. Can not be the same as FLASHBOTS_RPC_URL
@@ -14,3 +19,6 @@ this dir is for trevor messing around with mev stuff
 # Scripts
 
 - `yarn gen_keys` - generates keys for usage
+- `yarn approve_trading` - has address call approval for smart contract address
+- `yarn backrun_demo` - runs the backrun demo
+- `yarn minter_demo` - runs the minter demo
